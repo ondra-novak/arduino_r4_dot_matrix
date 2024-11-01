@@ -104,6 +104,7 @@ You can specify start address in the frame buffer. This allows to create pages o
 ```
 void loop() {
     driver.drive(state, my_frame_buffer, offset);   //offset is in bytes
+    delay(2);   //2ms 500x
 }
 ```
 

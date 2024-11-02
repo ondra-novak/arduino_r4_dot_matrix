@@ -12,16 +12,21 @@ enum class Format {
     gray_blink_2bit,
 };
 
+enum class Order {
+    msb_to_lsb,     ///MSB is left, LSB is right
+    lsb_to_msb      ///LSB is left, MSB is right
+};
+
 ///define orientation
 enum class Orientation {
     ///portrait (8x12, power/usb is at upper)
-    portrait,
+    portrait,        ///< portrait
     ///landscape (12x8, power/usb is at left)
-    landscape,
+    landscape,       ///< landscape
     ///reverse portrait (8x12, power/usb is at bottom
-    reverse_portrait,
+    reverse_portrait,///< reverse_portrait
     ///reverse landscape (12x8, power/usb is at right)
-    reverse_landscape
+    reverse_landscape///< reverse_landscape
 };
 
 ///Declaration of frame buffer
@@ -40,7 +45,7 @@ enum class Orientation {
  *
  * @note zero pixel (0,0) is left top. X extends right, Y extends bottom
  */
-template<unsigned int _width, unsigned int _height, Format _format>
+template<unsigned int _width, unsigned int _height, Format _format = Format::monochrome_1bit, Order _order = Order::msb_to_lsb>
 struct FrameBuffer {
     ///width
     static constexpr unsigned int width = _width;
@@ -48,6 +53,9 @@ struct FrameBuffer {
     static constexpr unsigned int height = _height;
     ///format
     static constexpr Format format = _format;
+
+    static constexpr Order order = _order;
+
     ///bits per pixel
     static constexpr uint8_t bits_per_pixel =
             _format == Format::monochrome_1bit?1:
@@ -170,6 +178,7 @@ protected:
         uint8_t offset;
         uint8_t shift = 8;
     };
+    static constexpr Order order = FrameBuffer::order;
     static constexpr unsigned int bits_per_pixel = FrameBuffer::bits_per_pixel;
     static constexpr unsigned int fb_width = FrameBuffer::width;
     static constexpr uint8_t mask = FrameBuffer::mask;
@@ -216,7 +225,11 @@ protected:
             }
             pxofs *= bits_per_pixel;
             l.offset = pxofs / 8;
-            l.shift = pxofs % 8;
+            if (order == Order::lsb_to_msb) {
+                l.shift = (8-bits_per_pixel)-pxofs % 8;
+            } else {
+                l.shift = pxofs % 8;
+            }
             ++px;
         }
     }

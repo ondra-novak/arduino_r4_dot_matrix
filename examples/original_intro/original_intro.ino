@@ -352,7 +352,7 @@ constexpr uint32_t frames[][4] = {
 };
 
 constexpr unsigned int count_frames = sizeof(frames)/sizeof(frames[0]);
-using MyFB =  DotMatrix::FrameBuffer<12, count_frames * 8, DotMatrix::Format::monochrome_1bit>;
+using MyFB =  DotMatrix::FrameBuffer<12, count_frames * 8, DotMatrix::Format::monochrome_1bit, DotMatrix::Order::lsb_to_msb>;
 using MyDriver = DotMatrix::Driver<MyFB, DotMatrix::Orientation::landscape>;
 MyFB fb;
 DotMatrix::State st;
@@ -364,11 +364,7 @@ void setup() {
     for (int i = 0; i<3; ++i) {
       for (int j = 0;j<4; ++j) {  //animation has different format - convert it now
         uint8_t p1 = (x[i] >> (8*(3-j))) & 0xFF;
-        uint8_t p2 = 0;
-        for (int i = 0; i<8; ++i) {
-          p2 |= ((p1 >> i) & 0x1) << (7-i);
-        }
-        fb.pixels[z] = p2;;
+        fb.pixels[z] = p1;
         ++z;
       }
     }

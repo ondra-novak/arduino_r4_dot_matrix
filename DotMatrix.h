@@ -1,8 +1,30 @@
 #pragma once
-#include <Arduino.h>
+#include <algorithm>
 #include <type_traits>
 #include <cstdint>
+#include <iterator>
 namespace DotMatrix {
+
+///Drive functions - to drive matrix directly
+namespace DirectDrive {
+
+    ///clear matrix - turn off all diods, set all rows to high impedance
+    void clear_matrix();
+    ///activate single row
+    /**
+     * @param row row number 0-10
+     * @param high true - 5V, false - 0V
+     */
+    void activate_row(int row, bool high);
+    ///deactivate single row
+    /** Sets row to high impedance
+     *
+     * @param row row number 0-10
+     */
+    void deactivate_row(int row);
+
+}
+
 
 ///Define bitmap format
 enum class Format {
@@ -60,6 +82,9 @@ struct FrameBuffer {
     static constexpr uint8_t bits_per_pixel =
             _format == Format::monochrome_1bit?1:
             _format == Format::gray_blink_2bit?2:0;
+
+    ///recommended refresh rate
+    static constexpr unsigned int recommended_refresh_freq = 500 * bits_per_pixel;
     ///total count of pixelx of frame buffer
     static constexpr unsigned int count_pixels = width*height;
     ///total active pixels in frame (because pixels at right still need to be counted)
@@ -184,7 +209,6 @@ protected:
     static constexpr uint8_t mask = FrameBuffer::mask;
     static constexpr unsigned int num_leds = 96;
     static constexpr unsigned int num_rows = 11;
-    static constexpr unsigned int pin_zero_index = 28;
     static constexpr uint8_t pins[num_leds][2] = {
             { 7, 3 }, { 3, 7 }, { 7, 4 },
             { 4, 7 }, { 3, 4 }, { 4, 3 }, { 7, 8 }, { 8, 7 }, { 3, 8 },
@@ -234,23 +258,23 @@ protected:
         }
     }
     void drive_mono(unsigned int c, const FrameBuffer &fb, unsigned int fb_offset) const {
-        clear_matrix();
+        DirectDrive::clear_matrix();
         unsigned int hrow = c % num_rows;
-        activate_row(hrow, true);
+        DirectDrive::activate_row(hrow, true);
         for (int i = 0; i < num_rows-1; ++i) {
             const PixelLocation &ploc = pixel_map[hrow][i];
             auto lrow = i>=hrow?i+1:i;
             unsigned int addr = (fb_offset + ploc.offset) % FrameBuffer::count_bytes;
             uint8_t b = (fb.pixels[addr] >> ploc.shift) & 1;
-            if (b) activate_row(lrow, false);
+            if (b) DirectDrive::activate_row(lrow, false);
         }
     }
     void drive_gray(unsigned int c, bool flash, const FrameBuffer &fb, unsigned int fb_offset) const {
         bool gray_on = !(c & 1);;
         unsigned int hrow = (c >> 1) % num_rows;
         if (gray_on) {
-            clear_matrix();
-            activate_row(hrow, true);
+            DirectDrive::clear_matrix();
+            DirectDrive::activate_row(hrow, true);
             for (int i = 0; i < num_rows-1; ++i) {
                 const PixelLocation &ploc = pixel_map[hrow][i];
                 auto lrow = i>=hrow?i+1:i;
@@ -259,8 +283,8 @@ protected:
                 switch (b) {
                     default:break;
                     case 1: [[fallthrough]];
-                    case 2: activate_row(lrow, false);break;
-                    case 3: if (flash) activate_row(lrow, false);break;;
+                    case 2: DirectDrive::activate_row(lrow, false);break;
+                    case 3: if (flash) DirectDrive::activate_row(lrow, false);break;;
                 }
             }
         } else {
@@ -270,31 +294,119 @@ protected:
                 unsigned int addr = (fb_offset + ploc.offset) % FrameBuffer::count_bytes;
                 uint8_t b = (fb.pixels[addr] >> ploc.shift) & 3;
                 if (b == 1) {
-                    deactivate_row(lrow);
+                    DirectDrive::deactivate_row(lrow);
                 }
             }
         }
     }
-    static constexpr uint32_t LED_MATRIX_PORT0_MASK  = ((1 << 3) | (1 << 4) | (1 << 11) | (1 << 12) | (1 << 13) | (1 << 15));
-    static constexpr uint32_t LED_MATRIX_PORT2_MASK  = ((1 << 4) | (1 << 5) | (1 << 6) | (1 << 12) | (1 << 13));
-    void clear_matrix() const {
-      R_PORT0->PCNTR1 &= ~LED_MATRIX_PORT0_MASK;
-      R_PORT2->PCNTR1 &= ~LED_MATRIX_PORT2_MASK;
-    }
-    void activate_row(int row, bool high) const {
-      bsp_io_port_pin_t pin_a = g_pin_cfg[row + pin_zero_index].pin;
-      R_PFS->PORT[pin_a >> 8].PIN[pin_a & 0xFF].PmnPFS =
-        IOPORT_CFG_PORT_DIRECTION_OUTPUT | (high?IOPORT_CFG_PORT_OUTPUT_HIGH:IOPORT_CFG_PORT_OUTPUT_LOW);
-    }
-    void deactivate_row(int row) const {
-      bsp_io_port_pin_t pin_a = g_pin_cfg[row + pin_zero_index].pin;
-      if (pin_a >> 8) {
-          R_PORT2->PCNTR1 &= ~(1 << (pin_a & 0xFF));
-      } else {
-          R_PORT0->PCNTR1 &= ~(1 << (pin_a & 0xFF));
-      }
-    }
 };
+
+
+///helper function for ISR callbacks
+/** Allows to adapt to ordinary function and also to lambda function with
+ * limited closure. The closure must be trivially copy constructible (so
+ * it can contain basic types, pointers and references). The function
+ * can't be mutable
+ */
+class TimerFunction {
+public:
+
+    ///construct empty
+    TimerFunction() = default;
+
+    ///construct from a function
+    template<typename Fn>
+    TimerFunction(Fn fn) {
+        static_assert(std::is_invocable_v<Fn>);
+        static_assert(sizeof(Fn) <= sizeof(_buffer));
+        static_assert(std::is_trivially_copy_constructible_v<Fn>);
+        new(_buffer) Fn(std::forward<Fn>(fn));
+        _cb = [](const TimerFunction *me) {
+            const Fn &fn = *reinterpret_cast<const Fn *>(me->_buffer);
+            fn();
+        };
+    }
+
+    ///return boolean if function is defined
+    operator bool() const {return _cb != nullptr;}
+    bool operator==(const TimerFunction &other) const {
+        return _cb == other._cb &&
+                std::equal(std::begin(_buffer),
+                           std::end(_buffer),
+                           std::begin(other._buffer));
+    }
+
+    ///compare two functions
+    bool operator!=(const TimerFunction &other) const {
+        return !operator==(other);
+    }
+
+
+    ///call the function
+    void operator()() const {
+        _cb(this);
+    }
+
+
+protected:
+    ///a reserved buffer for the closure
+    char _buffer[sizeof(void *)*8];
+    ///entry point to the function
+    void (*_cb)(const TimerFunction *me) = nullptr;
+
+};
+
+///Enables automatic driving (using timer and interrupt)
+/**
+ * @param cb a function which should call driver.drive() function with appropriate
+ *  arguments. Keep this function shortest as possible. The function can have
+ *  a closure (lambda function), however it is limited and must be trivially copy
+ *  constructible (we don't use std::function here)
+ * @param freq frequency in Hz. 1bit framebuffer needs 500Hz, 2bit framebuffer needs 1000Hz
+ */
+void enable_auto_drive(TimerFunction cb, unsigned int freq);
+
+///Enables automatic driving (using timer and interrupt)
+/**
+ * @param driver reference to driver
+ * @param st reference to state variable
+ * @param fb reference to frame buffer
+ *
+ */
+template<typename FrameBuffer, Orientation _orientation, int _offset>
+void enable_auto_drive(const Driver<FrameBuffer, _orientation, _offset> &driver,
+         State &st, const FrameBuffer &fb) {
+
+    enable_auto_drive([&driver, &fb, &st]{driver.drive(st, fb);}, FrameBuffer::recommended_refresh_freq);
+}
+
+///Enables automatic driving (using timer and interrupt) with scrolling
+/**
+ * @param driver reference to driver
+ * @param st reference to state variable
+ * @param fb reference to frame buffer
+ * @param speed_div speed divider. It divides recommended_refresh_rate by this value.
+ *  the value must not be zero.
+ *
+ * @note the frame buffer must have virtual with in multiples of 8
+ * (of 4 in case of 2bits per pixel).
+ */
+template<typename FrameBuffer, Orientation _orientation, int _offset>
+void enable_auto_drive_scroll(const Driver<FrameBuffer, _orientation, _offset> &driver,
+         State &st, const FrameBuffer &fb, unsigned int speed_div) {
+
+    constexpr unsigned int pixels_per_byte = (8 / FrameBuffer::bits_per_pixel);
+    constexpr unsigned int step = FrameBuffer::width / pixels_per_byte;
+    static_assert(step * pixels_per_byte == FrameBuffer::width, "Unaligned frame buffer");
+
+    speed_div = std::max<unsigned int>(1, speed_div);
+    enable_auto_drive([&driver, &st, &fb, speed_div]{
+        driver.drive(st, fb, (st.counter/speed_div)*step);
+    }, FrameBuffer::recommended_refresh_freq);
+}
+
+void disable_auto_drive();
+
 
 }
 #include "bitmap.h"

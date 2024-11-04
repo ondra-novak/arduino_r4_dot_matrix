@@ -9,6 +9,7 @@ DotMatrix::State st = {};
 
 
 void setup() {
+  
   char all[110] = "Hello world! ";
   for (int i = 0; i < 96; ++i) all[i+13] = i+32;
   all[110] = 0;
@@ -18,5 +19,5 @@ void setup() {
 }
 
 void loop() {
-
+  Serial.begin()
 }

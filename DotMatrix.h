@@ -127,7 +127,7 @@ struct FrameBuffer {
      * @param y y coord
      * @return value of pixel
      */
-    constexpr uint8_t get_pixel(unsigned int x, unsigned int y) {
+    constexpr uint8_t get_pixel(unsigned int x, unsigned int y) const {
         if (x < _width && y < _height) {
             unsigned int bit = (x + y * width) * bits_per_pixel;
             unsigned int byte = bit / 8;
@@ -137,6 +137,70 @@ struct FrameBuffer {
             return {};
         }
     }
+
+    ///clear buffer
+    /**
+     * @param value specifies color.
+     */
+    constexpr void clear(uint8_t value = 0) {
+        uint8_t byte = 0;
+        for (int i = 0; i < 8; i+=bits_per_pixel) {
+            byte |= (value & mask) << i;
+        }
+        std::fill(std::begin(pixels), std::end(pixels), byte);
+    }
+
+    ///draw line
+    /**
+     * @param x0 x-coord of starting point
+     * @param y0 y-coord of starting point
+     * @param x1 x-coord of ending point
+     * @param y1 y-coord of ending point
+     * @param color color value
+     */
+    constexpr void draw_line(int x0, int y0, int x1, int y1, uint8_t color) {
+        auto abs = [](auto x){return x<0?-x:x;};
+        int dx = abs(x1 - x0);
+        int dy = abs(y1 - y0);
+        int sx = (x0 < x1) ? 1 : -1;
+        int sy = (y0 < y1) ? 1 : -1;
+        int err = dx - dy;
+
+        while (true) {
+            set_pixel(static_cast<unsigned int>(x0), static_cast<unsigned int>(y0), color);
+            if (x0 == x1 && y0 == y1) break;
+            int e2 = 2 * err;
+            if (e2 > -dy) {
+                err -= dy;
+                x0 += sx;
+            }
+            if (e2 < dx) {
+                err += dx;
+                y0 += sy;
+            }
+        }
+    }
+
+    ///draw box
+    /**
+     * @param x0 x-coord of starting point
+     * @param y0 y-coord of starting point
+     * @param x1 x-coord of ending point
+     * @param y1 y-coord of ending point
+     * @param color color value
+     *
+     * @note all coordinates are included
+     */
+    constexpr void draw_box(int x0, int y0, int x1, int y1, uint8_t color) {
+        if (y0 > y1) std::swap(y0,y1);
+        if (x0 > x1) std::swap(x0,x1);
+        for (int y = y0; y <= y1; ++y) {
+            for (int x = x0; x <= x1; ++y) {
+                set_pixel(static_cast<unsigned int>(x),static_cast<unsigned int>(y), color);
+            }
+        }
+    }
+
 };
 
 ///contains driver's state
@@ -261,7 +325,7 @@ protected:
         DirectDrive::clear_matrix();
         unsigned int hrow = c % num_rows;
         DirectDrive::activate_row(hrow, true);
-        for (int i = 0; i < num_rows-1; ++i) {
+        for (unsigned int i = 0; i < num_rows-1; ++i) {
             const PixelLocation &ploc = pixel_map[hrow][i];
             auto lrow = i>=hrow?i+1:i;
             unsigned int addr = (fb_offset + ploc.offset) % FrameBuffer::count_bytes;
@@ -275,7 +339,7 @@ protected:
         if (gray_on) {
             DirectDrive::clear_matrix();
             DirectDrive::activate_row(hrow, true);
-            for (int i = 0; i < num_rows-1; ++i) {
+            for (unsigned int i = 0; i < num_rows-1; ++i) {
                 const PixelLocation &ploc = pixel_map[hrow][i];
                 auto lrow = i>=hrow?i+1:i;
                 unsigned int addr = (fb_offset + ploc.offset) % FrameBuffer::count_bytes;

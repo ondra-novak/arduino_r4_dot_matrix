@@ -14,7 +14,14 @@ enum class BltOp {
     ///set pixels that are one in bitmap
     or_op,
     ///xor pixels
-    xor_op
+    xor_op,
+    ///set pixels that are zeroed in bitmap
+    nand_op,
+    ///clear pixels that are set in bitmap
+    nor_op,
+    ///copy inverted
+    copy_neg,
+
 };
 
 enum class Rotation {
@@ -110,8 +117,8 @@ public:
      * decodes asciiart string and stores bits directly to final compilation
      */
     constexpr Bitmap(const char *asciiart) {
-        for (int y = 0; y < height; ++y) {
-            for (int x = 0; x < width; ++x) {
+        for (unsigned int y = 0; y < height; ++y) {
+            for (unsigned int x = 0; x < width; ++x) {
                 if (*asciiart > 32)
                     set_pixel(x, y);
                 ++asciiart;
@@ -121,6 +128,12 @@ public:
             bitmap[height][2] = 1;
         }
     }
+
+    template<typename FrameBuffer>
+    constexpr void draw(FrameBuffer &fb, unsigned int x, unsigned int y, ColorMap colors = {},
+            BltOp blt_op = BltOp::copy,
+            Rotation r = Rotation::rot0) const;
+
 protected:
     uint8_t bitmap[height][line_width] = { };
 };
@@ -166,18 +179,26 @@ struct BitBlt {
                     c = y + col;
                 }
                 auto v = bm.get_pixel(x, y);
-                if constexpr (op == BltOp::copy) {
-                    fb.set_pixel(c, r, v ? colors.foreground : colors.background);
+                if constexpr (op == BltOp::xor_op) {
+                    auto cc = fb.get_pixel(c, r);
+                    fb.set_pixel(c, r,
+                            cc ^ (v ? colors.foreground : colors.background));
                 } else if constexpr (op == BltOp::and_op) {
                     if (!v)
                         fb.set_pixel(c, r, colors.background);
                 } else if constexpr (op == BltOp::or_op) {
                     if (v)
                         fb.set_pixel(c, r, colors.foreground);
+                } else if constexpr (op == BltOp::nand_op) {
+                    if (!v)
+                        fb.set_pixel(c, r, colors.foreground);
+                } else if constexpr (op == BltOp::nor_op) {
+                    if (v)
+                        fb.set_pixel(c, r, colors.background);
+                } else if constexpr (op == BltOp::copy_neg) {
+                    fb.set_pixel(c, r, v ? colors.background : colors.foreground);
                 } else {
-                    auto cc = fb.get_pixel(c, r);
-                    fb.set_pixel(c, r,
-                            cc ^ (v ? colors.foreground : colors.background));
+                    fb.set_pixel(c, r, v ? colors.foreground : colors.background);
                 }
             }
         }
@@ -364,4 +385,37 @@ struct TextRender {
         return {x,y};
     }
 };
+
+template<typename T, T from, T to>
+struct ToIntergalValue {
+    template<typename Fn>
+    static constexpr  auto call(T val, Fn &&fn) {
+        if (val == from) return fn(std::integral_constant<T, from>());
+        else return ToIntergalValue<T, static_cast<T>(static_cast<int>(from)+1), to>::call(val, std::forward<Fn>(fn));
+    }
+};
+
+template<typename T, T x>
+struct ToIntergalValue<T, x, x> {
+    template<typename Fn>
+    static constexpr  auto call(T , Fn &&fn) {
+        return fn(std::integral_constant<T, x>());
+    }
+};
+
+template<unsigned int w, unsigned int h>
+template<typename FrameBuffer>
+constexpr void Bitmap<w,h>::draw(FrameBuffer &fb, unsigned int x, unsigned int y, ColorMap colors,
+        BltOp blt_op, Rotation r) const {
+    ToIntergalValue<BltOp, BltOp::copy, BltOp::copy_neg>
+        ::call(blt_op,[&](auto c_op){
+            ToIntergalValue<Rotation, Rotation::rot0, Rotation::rot270>
+                ::call(r, [&](auto r_op) {
+                    BitBlt<c_op.value, r_op.value>::bitblt(*this, fb, x, y, colors);
+                });
+        });
+
+}
+
+
 }

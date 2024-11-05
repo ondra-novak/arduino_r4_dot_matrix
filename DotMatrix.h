@@ -195,7 +195,7 @@ struct FrameBuffer {
         if (y0 > y1) std::swap(y0,y1);
         if (x0 > x1) std::swap(x0,x1);
         for (int y = y0; y <= y1; ++y) {
-            for (int x = x0; x <= x1; ++y) {
+            for (int x = x0; x <= x1; ++x) {
                 set_pixel(static_cast<unsigned int>(x),static_cast<unsigned int>(y), color);
             }
         }

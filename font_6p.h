@@ -106,11 +106,11 @@ constexpr auto font_6p = FontP<7, 6>({FontFaceP<7, 6>
         "      "
         "x     "
         "      " },
-   { 6, "      "
-        "    x "
-        "   x  "
+   { 4, "  x   "
         "  x   "
         " x    "
+        " x    "
+        "x     "
         "x     "
         "      " },
    { 5, " xx   "
@@ -183,12 +183,12 @@ constexpr auto font_6p = FontP<7, 6>({FontFaceP<7, 6>
         "   x  "
         " xx   "
         "      " },
-   { 3, "      "
+   { 2, "      "
         "      "
         "      "
-        " x    "
+        "x     "
         "      "
-        " x    "
+        "x     "
         "      " },
    { 3, "      "
         "      "

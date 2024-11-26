@@ -87,8 +87,8 @@ constexpr Font<6,4> font_5x3 ({
         "    "
         "    "
         "    "
-        "XX  "
-        "XX  "
+        "    "
+        " X  "
         "    ",
         "    "
         "  X "
